@@ -25,6 +25,7 @@ Z   -> (Pin 26)
 #include <avr/io.h>
 #include <avr/delay.h>
 #include <stdlib.h>
+#include <avr/interrupt.h>
 #include "i2cmaster.h"
 #include "myFont.h"
 
@@ -104,19 +105,28 @@ int main(void)
     DDRB  = 0xff;                              // use all pins on port B for output 
     PORTB = 0x00;                              // (LED's low & off)
 
+    DDRB &= ~(1<<PB0);                          // Set PB0 as input
+    PORTB |= (1<<PB0);                          // Pullup resistor on PB0
+
+    PCMSK0 |= (1<<PCINT0);                      // Enable PCINT0 in PCMSK0 register
+    PCICR |= (1<< PCIE0);                       // Activate interrupts on enabled PCINT7-0
+    sei();                                      // Enables interrupts
+
     i2c_init();                                // init I2C interface
 
     ret = i2c_start(DevSSD1306+I2C_WRITE);       // set device address and write mode
+
     if ( ret ) {
-        /* failed to issue start condition, possibly no device found */
+    /* failed to issue start condition, possibly no device found */
         i2c_stop();
-        PORTB=0xff;                            // activate all 8 LED to show error */
+        PORTB= (1<<PB1);                            // activate all 8 LED to show error */
     }
     else {
     /* issuing start condition ok, device accessible */
     setup_i2c();
     setup_adc();
     }
+
     for(;;){
         clearBuffer(buffer);
 
@@ -125,9 +135,9 @@ int main(void)
         sample_adc_channel(2);
         sample_adc_channel(3);
 
-        PORTB=0x00;
+        //PORTB=0x00;
         drawBuffer(0, 0, buffer);
-        PORTB=0xFF;
+        // PORTB= (1<<PB1);                            // activate LED to show sampling */
         _delay_ms(500);
 
     }
@@ -299,3 +309,6 @@ void lcd_draw_string(uint8_t column, uint8_t page, char *string, uint8_t *buff){
     }
 }
 
+ISR(PCINT0_vect){
+    PORTB ^= (1<<PB1);                            // activate LED to show sampling */
+}
