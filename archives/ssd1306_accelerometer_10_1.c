@@ -27,19 +27,10 @@ Z   -> (Pin 26)
 #include <stdlib.h>
 #include <avr/interrupt.h>
 #include <avr/pgmspace.h>
-#include <avr/sleep.h>
-#include <avr/power.h>
 #include "i2cmaster.h"
 #include "myFont.h"
 
-void init_devices(void);
-void timer0_init(void);
 
-#define NUM_TASKS 8
-char task_bits = 0;  /* lsb is hi priority task */
-volatile char tick_flag = 0;    /* if non-zero, a tick has elapsed */
-unsigned int task_timers[NUM_TASKS]={0,0,0,0,0,0,0,0};                  /* init the timers to 0 on startup */
-static const char bit_mask[] PROGMEM={1,2,4,8,16,32,64,128};            /* value -> bit mask xlate table */
 
 #define DevSSD1306  0x78      // device address of SSD1306 OLED, uses 8-bit address (0x3c)!!! 
 
@@ -114,8 +105,12 @@ int main(void)
 {
     unsigned char ret;
 
-    init_io();
-    init_devices();
+    DDRB  = 0xff;                              // use all pins on port B for output 
+    PORTB = 0x00;                              // (LED's low & off)
+
+    DDRB &= ~(1<<PB0);                          // Set PB0 as input
+    PORTB |= (1<<PB0);                          // Pullup resistor on PB0
+
     PCMSK0 |= (1<<PCINT0);                      // Enable PCINT0 in PCMSK0 register
     PCICR |= (1<< PCIE0);                       // Activate interrupts on enabled PCINT7-0
     sei();                                      // Enables interrupts
@@ -125,36 +120,29 @@ int main(void)
     ret = i2c_start(DevSSD1306+I2C_WRITE);       // set device address and write mode
 
     if ( ret ) {
-        /* failed to issue start condition, possibly no device found */
+    /* failed to issue start condition, possibly no device found */
         i2c_stop();
         PORTB= (1<<PB1);                            // activate all 8 LED to show error */
     }
     else {
-        /* issuing start condition ok, device accessible */
-        setup_i2c();
-        setup_adc();
+    /* issuing start condition ok, device accessible */
+    setup_i2c();
+    setup_adc();
     }
 
-    for(;;){                                                // Event Loop
-        if(tick_flag){
-            tick_flag = 0;
-            sleep_disable();
-            
-            clearBuffer(buffer);
+    for(;;){
+        clearBuffer(buffer);
 
-            // get accelerometer values
-            sample_adc_channel(1);
-            sample_adc_channel(2);
-            sample_adc_channel(3);
+        // get accelerometer values
+        sample_adc_channel(1);
+        sample_adc_channel(2);
+        sample_adc_channel(3);
 
-            //PORTB=0x00;
-            drawBuffer(0, 0, buffer);
-            // PORTB= (1<<PB1);                            // activate LED to show sampling */
+        //PORTB=0x00;
+        drawBuffer(0, 0, buffer);
+        // PORTB= (1<<PB1);                            // activate LED to show sampling */
+        _delay_ms(500);
 
-            set_sleep_mode(SLEEP_MODE_IDLE);
-            sleep_enable();
-            sleep_mode();
-        }
     }
 }
 
@@ -324,46 +312,6 @@ void lcd_draw_string(uint8_t column, uint8_t page, char *string, uint8_t *buff){
     }
 }
 
-
-//call this routine to initialize all peripherals
-void init_devices(void){
-    //stop errant interrupts until set up
-    cli(); //disable all interrupts
-
-    timer0_init();
-    
-    MCUCR = 0x00;
-    EICRA = 0x00; //extended ext ints
-    EIMSK = 0x00;
-    
-    TIMSK0 = 0x02; //timer 0 interrupt sources
-    
-    PRR = 0x00; //power controller
-    sei(); //re-enable interrupts
-    //all peripherals are now initialized
+ISR(PCINT0_vect){
+    PORTB ^= (1<<PB1);                            // activate LED to show sampling */
 }
-//TIMER0 initialize - prescale:1024
-// WGM: CTC
-// desired value: 10mSec
-// actual value: 10.048mSec (-0.5%)
-void timer0_init(void){
-    TCCR0B = 0x00; //stop
-    TCNT0 = 0x00; //set count
-    TCCR0A = 0x02; //CTC mode
-    OCR0A = 0x9C; 
-    TCCR0B = 0x05; //start timer
-}
-
-void init_io(){
-    DDRB  = 0xff;                              // use all pins on port B for output 
-    PORTB = 0x00;                              // (LED's low & off)
-
-    DDRB &= ~(1<<PB0);                          // Set PB0 as input
-    PORTB |= (1<<PB0);                          // Pullup resistor on PB0
-}
-
-ISR(TIMER0_COMPA_vect){
- //TIMER0 has overflowed
-    tick_flag = 1;
-}
-
